@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @Builder
 public class CardPaymentRequestDto {
+    public int paymentId;
     private String pan;
     private String securityCode;
     private String cardHolderName;

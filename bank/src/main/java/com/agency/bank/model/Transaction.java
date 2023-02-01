@@ -41,4 +41,6 @@ public class Transaction {
     @ManyToOne(fetch = FetchType.LAZY,cascade =  CascadeType.ALL)
     @JsonIgnore
     Client client;
+    @Column
+    private String acquirerPan;
 }

@@ -40,54 +40,6 @@ public class TransactionService {
         this.panAcquirer = panAcquirer;
     }
 
-    public Transaction pay(CardDto cardDto) {
-        Client client = clientService.findByPan(cardDto.getPan()); //kupac
-        Transaction transaction = transactionRepository.findByPaymentId(Integer.parseInt(cardDto.getPaymentId()), client.getId());
-        Client acquirer = clientService.findByPan(panAcquirer); //prodavac
-
-        //provarava validnost dobijenih podataka
-        if (!checkValidityOfIssuerCardData(cardDto)){
-            transaction.setTransactionStatus(TransactionStatus.FAILED);
-            return transaction;
-        }
-
-        //provera da li je ista banka
-        if (sameBankForAcquirerAndIssuer(cardDto.getPan())){
-            //provera raspolozivih sredstava
-            if (checkClientAccountState(transaction.getAmount(), client)){
-                //rezervacija sredstava
-                Reservation reservation = Reservation.builder()
-                        .description(cardDto.getDescription())
-                        .amount(Double.parseDouble(cardDto.getAmount()))
-                        .acquirerAccountNumber(acquirer.getAccount().getAccountNumber())
-                        .client(client)
-                        .build();
-                transaction.setTransactionStatus(TransactionStatus.IN_PROGRESS);
-                transaction.setClient(client);
-                reservationService.save(reservation);
-            } else {
-                transaction.setTransactionStatus(TransactionStatus.FAILED); //klijent nema dovoljno raspolozivih sredstava pa je transakicja neuspesna
-            }
-        } else {
-            return null; // na kontroleru ce ovim da se preusmeri na korak 3b,4,5,6 -----------> slucaj kada su razlicite banke
-        }
-        transactionRepository.save(transaction);
-        createTransactionForAcquirer(transaction, acquirer);
-        return transaction;
-    }
-
-    private void createTransactionForAcquirer(Transaction transaction, Client acquirer) {
-        Transaction acquirerTransaction = Transaction.builder()
-                .transactionStatus(transaction.getTransactionStatus())
-                .paymentId(transaction.getPaymentId())
-                .description(transaction.getDescription())
-                .merchantTimestamp(transaction.getMerchantTimestamp())
-                .merchantOrderId(transaction.getMerchantOrderId())
-                .amount(transaction.getAmount())
-                .client(acquirer)
-                .build();
-        transactionRepository.save(acquirerTransaction);
-    }
 
     private boolean checkClientAccountState(double amount, Client client) {
         double sum = 0;
@@ -115,53 +67,19 @@ public class TransactionService {
         return false;
     }
 
-    private boolean checkValidityOfIssuerCardData(CardDto cardDto) {
-        Card card = cardService.findByPan(cardDto.getPan());
-        if (card == null || !card.getDateExpiration().equals(cardDto.getDateExpiration().trim()) || !card.getSecurityCode().equals(cardDto.getSecurityCode()))
-            return false;
-        return true;
-    }
-
-    public PaymentResponseDTO requestPayment(PaymentForBankRequestDto paymentForBankRequestDto) {
-        //provera merchant info
-
-        Transaction transaction = Transaction.builder()
-                                                .paymentId(generateRandomNumber())
-                                                .transactionStatus(TransactionStatus.PAYMENT_REQUESTED)
-                                                .merchantOrderId(paymentForBankRequestDto.getMerchantOrderId())
-                                                .merchantTimestamp(paymentForBankRequestDto.getMerchantTimestamp())
-                                                .amount(paymentForBankRequestDto.getAmount())
-                                                .description(paymentForBankRequestDto.getDescription())
-                                                .build();
-
-        transactionRepository.save(transaction);
-
-        PaymentResponseDTO response = PaymentResponseDTO.builder()
-                .paymentId(transaction.getPaymentId())
-                .paymentURL(paymentUrl)
-                .amount(transaction.getAmount())
-                .description(transaction.getDescription())
-                .successUrl(paymentForBankRequestDto.getSuccessUrl())
-                .errorUrl(paymentForBankRequestDto.getErrorUrl())
-                .failedUrl(paymentForBankRequestDto.getFailedUrl())
-                .build();
-
-        return response;
-    }
-
     private int generateRandomNumber() {
         int m = (int) Math.pow(10, 10 - 1);
         return m + new Random().nextInt(9 * m);
     }
-
-    public String getPaymentURL(Transaction transaction, CardDto cardDto) {
-        if (transaction.getTransactionStatus() == TransactionStatus.SUCCESS || transaction.getTransactionStatus() == TransactionStatus.IN_PROGRESS)
-            return cardDto.getSuccessUrl();
-        else if (transaction.getTransactionStatus() == TransactionStatus.FAILED)
-            return cardDto.getFailedUrl();
-        else
-            return cardDto.getErrorUrl();
-    }
+//
+//    public String getPaymentURL(Transaction transaction, CardDto cardDto) {
+//        if (transaction.getTransactionStatus() == TransactionStatus.SUCCESS || transaction.getTransactionStatus() == TransactionStatus.IN_PROGRESS)
+//            return cardDto.getSuccessUrl();
+//        else if (transaction.getTransactionStatus() == TransactionStatus.FAILED)
+//            return cardDto.getFailedUrl();
+//        else
+//            return cardDto.getErrorUrl();
+//    }
 
     @Scheduled(cron = "${greeting.cron}")
     private void finishTransactions(){
@@ -185,21 +103,35 @@ public class TransactionService {
 
     //Banka 2 koja je banka kupca, korak 5
     public Transaction payBuyer(CardPaymentRequestDto cardDto) {
-        Transaction transaction = transactionRepository.findByAcquirerOrderId(cardDto.getAcquirerOrderId()); //on je id transakcije
+
+        Transaction transaction = new Transaction();
         if (cardService.findByPan(cardDto.getPan()) == null) { //ako stvarno jeste clan te banke
             transaction.setTransactionStatus(TransactionStatus.FAILED);
-            return transaction;
         }
+
         if(checkClientAccountState(cardDto.getAmount(), clientService.findByPan(cardDto.getPan()))){
+
             Reservation reservation = Reservation.builder()
                     .description(cardDto.getDescription())
                     .amount(cardDto.getAmount())
                     .client(clientService.findByPan(cardDto.getPan()))
-                    .acquirerAccountNumber(clientService.findByPan(cardDto.getPanAcquirer()).getAccount().getAccountNumber())
+               //     .acquirerAccountNumber(clientService.findByPan(cardDto.getPanAcquirer()).getAccount().getAccountNumber())
+                    .acquirerAccountNumber(cardDto.getPanAcquirer()) //neka bude PAN???
                     .build();
+
             transaction.setTransactionStatus(TransactionStatus.SUCCESS); //bice uspesna cim ima sredstava, nema sta da pukne
             transaction.setAcquirerOrderId(cardDto.getAcquirerOrderId());
             transaction.setAcquirerTimestamp(cardDto.getAcquirerTimestamp()); //rezervacija na vreme samog zahteva iz pcca
+            transaction.setPaymentId(cardDto.getPaymentId());
+           // transaction.setMerchantOrderId(cardDto.); MERCHANT ORDER ID I TIMESTAMP NA BANCI OVOJ NEMA
+            transaction.setIssuerOrderId(generateRandomNumber());
+            transaction.setIssuerTimestamp(LocalDateTime.now());
+            transaction.setDescription(cardDto.getDescription());
+            transaction.setAmount(cardDto.getAmount());
+            transaction.setPaymentId(cardDto.getPaymentId());
+            transaction.setAcquirerPan(cardDto.getPanAcquirer());
+            transaction.setClient(clientService.findByPan(cardDto.getPan()));
+
             reservationService.save(reservation);
         } else {
             transaction.setTransactionStatus(TransactionStatus.FAILED);
@@ -215,14 +147,15 @@ public class TransactionService {
                 .description(transaction.getDescription())
                 .acquirerOrderId(transaction.getAcquirerOrderId())
                 .acquirerTimestamp(transaction.getAcquirerTimestamp())
-                .merchantOrderId(transaction.getMerchantOrderId())
+                .merchantOrderId(0) ///OVDE MI ON NI NE TREBA
                 .transactionStatus(transaction.getTransactionStatus())
-                .issuerOrderId(generateRandomNumber())
-                .issuerOrderTimestamp(LocalDateTime.now())
+                .issuerOrderId(transaction.getIssuerOrderId())
+                .issuerOrderTimestamp(transaction.getIssuerTimestamp())
                 .paymentId(transaction.getPaymentId())
-                .acquirerPan(transaction.getClient().getCard().getPan())
+                .acquirerPan(transaction.getAcquirerPan())
                 .payer(transaction.getClient().getName() + " " + transaction.getClient().getSurname())
                 .build();
         return response;
     }
+
 }
