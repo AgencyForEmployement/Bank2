@@ -90,15 +90,11 @@ public class TransactionService {
             Account clientAccount = reservation.getClient().getAccount();
             clientAccount.setAmount(newAmount);
             accountRepository.save(clientAccount);
-            double newAmountForAcquirer = acquirer.getAccount().getAmount() + reservation.getAmount(); //povecaj novac prodavcu
-            Account acquirerAccount = acquirer.getAccount();
-            acquirerAccount.setAmount(newAmountForAcquirer);
-            accountRepository.save(acquirerAccount);
+
             reservation.setClient(null);
             reservationService.save(reservation);
             reservationService.delete(reservation);//izbrsi rezervaciju
         }
-        //nije promenjena transakcija u success
     }
 
     //Banka 2 koja je banka kupca, korak 5
@@ -123,13 +119,14 @@ public class TransactionService {
             transaction.setAcquirerOrderId(cardDto.getAcquirerOrderId());
             transaction.setAcquirerTimestamp(cardDto.getAcquirerTimestamp()); //rezervacija na vreme samog zahteva iz pcca
             transaction.setPaymentId(cardDto.getPaymentId());
-           // transaction.setMerchantOrderId(cardDto.); MERCHANT ORDER ID I TIMESTAMP NA BANCI OVOJ NEMA
+            transaction.setMerchantTimestamp(LocalDateTime.now());
             transaction.setIssuerOrderId(generateRandomNumber());
             transaction.setIssuerTimestamp(LocalDateTime.now());
             transaction.setDescription(cardDto.getDescription());
             transaction.setAmount(cardDto.getAmount());
             transaction.setPaymentId(cardDto.getPaymentId());
             transaction.setAcquirerPan(cardDto.getPanAcquirer());
+            transaction.setMerchantOrderId(0);
             transaction.setClient(clientService.findByPan(cardDto.getPan()));
 
             reservationService.save(reservation);
@@ -147,7 +144,7 @@ public class TransactionService {
                 .description(transaction.getDescription())
                 .acquirerOrderId(transaction.getAcquirerOrderId())
                 .acquirerTimestamp(transaction.getAcquirerTimestamp())
-                .merchantOrderId(0) ///OVDE MI ON NI NE TREBA
+                .merchantOrderId(transaction.getMerchantOrderId())
                 .transactionStatus(transaction.getTransactionStatus())
                 .issuerOrderId(transaction.getIssuerOrderId())
                 .issuerOrderTimestamp(transaction.getIssuerTimestamp())
